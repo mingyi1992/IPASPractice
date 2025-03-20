@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPAS 試題測驗</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; position: relative; }
+        #test-selector { margin-bottom: 20px; }
+        .question-container { background-color: white; padding: 20px; margin-bottom: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
+        .question { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+        .options { list-style-type: none; padding: 0; }
+        .option { padding: 10px; margin: 5px 0; background-color: #e0e0e0; border-radius: 5px; cursor: pointer; transition: background-color 0.3s; }
+        .option:hover { background-color: #d0d0d0; }
+        .feedback { margin-top: 10px; font-weight: bold; display: none; }
+        .correct { color: green; }
+        .incorrect { color: red; }
+        #error-message { color: red; display: none; }
+        #stats { position: absolute; top: 20px; right: 20px; background-color: #fff; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
+        #next-button { display: none; margin-top: 10px; padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        #next-button:hover { background-color: #45a049; }
+    </style>
+</head>
+<body>
+    <h1>IPAS 試題測驗</h1>
+    <div id="test-selector">
+        <label for="test-index">選擇試題集：</label>
+        <select id="test-index">
+            <option value="">請選擇</option>
+        </select>
+    </div>
+    <div id="stats">
+        答對: <span id="correct-count">0</span> | 
+        答錯: <span id="incorrect-count">0</span> | 
+        總答題數: <span id="total-count">0</span>
+    </div>
+    <div id="quiz-container"></div>
+    <button id="next-button" onclick="showNextQuestion()">下一題</button>
+    <div id="error-message"></div>
+
+    <script>
+        const testIndexSelect = document.getElementById('test-index');
+        const quizContainer = document.getElementById('quiz-container');
+        const errorMessage = document.getElementById('error-message');
+        const nextButton = document.getElementById('next-button');
+        const correctCount = document.getElementById('correct-count');
+        const incorrectCount = document.getElementById('incorrect-count');
+        const totalCount = document.getElementById('total-count');
+
+        let allQuestions = []; // 儲存所有試題
+        let usedQuestionIds = new Set(); // 記錄已用過的題目 ID
+        let currentQuestion = null; // 當前顯示的題目
+        let stats = { correct: 0, incorrect: 0, total: 0 }; // 統計資料
+
+        // 載入 test_index 下拉選單
+        fetch('http://localhost:3001/api/indexes')
+            .then(response => {
+                if (!response.ok) throw new Error('API 回應失敗: ' + response.status);
+                return response.json();
+            })
+            .then(indexes => {
+                console.log('載入的 test_index:', indexes);
+                indexes.forEach(index => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.textContent = index;
+                    testIndexSelect.appendChild(option);
+                });
+            })
+            .catch(err => {
+                console.error('載入選單失敗:', err);
+                errorMessage.textContent = '無法載入試題集！';
+                errorMessage.style.display = 'block';
+            });
+
+        // 當選擇試題集時載入試題
+        testIndexSelect.addEventListener('change', function() {
+            const selectedIndex = this.value;
+            if (!selectedIndex) return;
+
+            fetch(`http://localhost:3001/api/questions/${selectedIndex}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('試題載入失敗: ' + response.status);
+                    return response.json();
+                })
+                .then(questions => {
+                    console.log('載入的試題:', questions);
+                    errorMessage.style.display = 'none';
+                    allQuestions = questions;
+                    usedQuestionIds.clear();
+                    stats = { correct: 0, incorrect: 0, total: 0 };
+                    updateStats();
+                    showNextQuestion();
+                })
+                .catch(err => {
+                    console.error('載入試題失敗:', err);
+                    errorMessage.textContent = '無法載入試題！';
+                    errorMessage.style.display = 'block';
+                });
+        });
+
+        // 顯示隨機題目
+        function showNextQuestion() {
+            if (usedQuestionIds.size >= allQuestions.length) {
+                quizContainer.innerHTML = '<p>所有題目已答完！</p>';
+                nextButton.style.display = 'none';
+                return;
+            }
+
+            const availableQuestions = allQuestions.filter(q => !usedQuestionIds.has(q.id));
+            currentQuestion = availableQuestions[Math.floor(Math.random() * availableQuestions.length)];
+            usedQuestionIds.add(currentQuestion.id);
+
+            quizContainer.innerHTML = '';
+            const div = document.createElement('div');
+            div.className = 'question-container';
+            div.id = `q${currentQuestion.id}`;
+
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'question';
+            questionDiv.textContent = `${currentQuestion.id}. ${currentQuestion.question}`;
+            div.appendChild(questionDiv);
+
+            const ul = document.createElement('ul');
+            ul.className = 'options';
+            ['A', 'B', 'C', 'D'].forEach(letter => {
+                const li = document.createElement('li');
+                li.className = 'option';
+                li.textContent = `(${letter}) ${currentQuestion[letter.toLowerCase()]}`;
+                li.onclick = () => checkAnswer(currentQuestion.id, letter, currentQuestion.answer);
+                ul.appendChild(li);
+            });
+            div.appendChild(ul);
+
+            const feedbackDiv = document.createElement('div');
+            feedbackDiv.className = 'feedback';
+            feedbackDiv.id = `feedback-q${currentQuestion.id}`;
+            div.appendChild(feedbackDiv);
+
+            quizContainer.appendChild(div);
+            nextButton.style.display = 'none';
+        }
+
+        // 檢查答案
+        function checkAnswer(questionId, selectedOption, correctAnswer) {
+            const feedbackElement = document.getElementById(`feedback-q${questionId}`);
+            if (selectedOption === correctAnswer) {
+                feedbackElement.textContent = `正確！答案是 ${correctAnswer}。`;
+                feedbackElement.className = 'feedback correct';
+                stats.correct++;
+            } else {
+                feedbackElement.textContent = `錯誤。正確答案是 ${correctAnswer}。`;
+                feedbackElement.className = 'feedback incorrect';
+                stats.incorrect++;
+            }
+            stats.total++;
+            feedbackElement.style.display = 'block';
+            updateStats();
+
+            const options = document.querySelectorAll(`#q${questionId} .option`);
+            options.forEach(option => {
+                option.onclick = null;
+                option.style.cursor = 'default';
+            });
+            nextButton.style.display = 'block';
+        }
+
+        // 更新統計
+        function updateStats() {
+            correctCount.textContent = stats.correct;
+            incorrectCount.textContent = stats.incorrect;
+            totalCount.textContent = stats.total;
+        }
+    </script>
+</body>
+</html>
